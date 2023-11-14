@@ -9,7 +9,9 @@ import sys
 import urllib.parse as p
 import urllib.request as r
 import tiktoken
+from flask import Flask, request as flrequest, jsonify
 
+app = Flask(__name__)
 # Constructs the request that graps the captions object from the video and returns it as a json object
 def getCaptions(user_input):
 
@@ -57,10 +59,23 @@ def get_video_id(url):
         print("Invalid youtube url")
         sys.exit(1)
 
+def check_context_length(context):
+    context_string = ""
+    for message in context:
+        context_string += message["content"] + "\n"
+    encoding = tiktoken.get_encoding("cl100k_base")
+    tokens = encoding.encode(context_string)
+    if(len(tokens) > 12000):
+        return False
+    else:
+        return True
+
+
 # Returns the recipe from the openAI model
 def getRecipe(caption):
     dotenv.load_dotenv()
     openai.api_key = os.getenv("API_KEY")
+
     query = "Summurize all of the recipes mentioned in the follwing transcript into Recipe: Ingredients: and Instructions: . For the Ingredients and Instructions, Be as detailed about measurements as possible"
     context = "Transcript: \n" + caption
     content = query + "\n" + context
@@ -71,6 +86,10 @@ def getRecipe(caption):
     ]
     prompt = {"role": "user", "content": f"{content}"}
     system_messages.append(prompt)
+
+    if(not check_context_length(system_messages)):
+        return "The transcript is too long to process. Please try again with a shorter video."
+    
     completion = openai.ChatCompletion.create(model=f"gpt-3.5-turbo-1106", response_format={"type": "json_object"}, messages=system_messages)
     return completion["choices"][0].message.content
 
@@ -89,16 +108,12 @@ def getVideoMetaData(video_id):
         
     return data["title"], data["author_name"]
 
+@app.route('/yummarize', methods=['GET'])
 def yummarize():
     user_input = flrequest.args.get('url')
     caption = getCaptions(user_input)
     recipe = getRecipe(caption)
     videoTitle, channel = (getVideoMetaData(get_video_id(user_input)))
+    return jsonify({"title": videoTitle, "channel": channel, "recipe": recipe})
 
-def main():
-    
-
-
-if __name__ == "__main__":
-    main()
 
