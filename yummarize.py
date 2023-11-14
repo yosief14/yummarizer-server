@@ -63,14 +63,15 @@ def getRecipe(caption):
     openai.api_key = os.getenv("API_KEY")
     query = "Summurize all of the recipes mentioned in the follwing transcript into Recipe: Ingredients: and Instructions: . For the Ingredients and Instructions, Be as detailed about measurements as possible"
     context = "Transcript: \n" + caption
-    prompt = query + "\n" + context
-    completion = openai.ChatCompletion.create(model=f"gpt-3.5-turbo-1106",
-    response_format={"type": "json_object"},
-    messages=[
+    content = query + "\n" + context
+    system_messages=[
     {"role": "system", "content": "You are a web server designed to output JSON objects with the following format for every recipe found: {Recipe: {Ingredients: , Instructions:}} . If the transcript doesn't contain a recipe, your return value should be -1.  For the Instructions, each step should be its own value in a list. For the Ingredients each ingredient should be its own value in a list. Measurements for the Ingredients should be as detailed as possible."},
     {"role": "system", "content": "If you are having trouble, try to break down the problem into smaller parts. For example, first try to find the recipe, then try to find the ingredients, then try to find the instructions."},
-    {"role": "system", "content": "The Ingredients and Instructions should be as detailed as possible. For example, if the recipe calls for 1 cup of flour, you should return 1 cup of flour, not just flour."},
-    {"role": "user", "content": f"{prompt}"}])
+    {"role": "system", "content": "The Ingredients and Instructions should be as detailed as possible. For example, if the recipe calls for 1 cup of flour, you should return 1 cup of flour, not just flour."}
+    ]
+    prompt = {"role": "user", "content": f"{content}"}
+    system_messages.append(prompt)
+    completion = openai.ChatCompletion.create(model=f"gpt-3.5-turbo-1106", response_format={"type": "json_object"}, messages=system_messages)
     return completion["choices"][0].message.content
 
 def getVideoMetaData(video_id):
