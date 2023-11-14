@@ -9,7 +9,6 @@ import sys
 import urllib.parse as p
 import urllib.request as r
 import tiktoken
-import argparse
 
 # Constructs the request that graps the captions object from the video and returns it as a json object
 def getCaptions(user_input):
@@ -59,27 +58,20 @@ def get_video_id(url):
         sys.exit(1)
 
 # Returns the recipe from the openAI model
-def getRecipeOpenAI(prompt, model, token_count):
+def getRecipe(caption):
     dotenv.load_dotenv()
     openai.api_key = os.getenv("API_KEY")
-    completion = openai.ChatCompletion.create(model=f"{model}", messages=[{"role": "user", "content": f"{prompt}"}]) 
-    return completion.choices[0].message.content
-
-def getRecipe(caption):
-    query = "Summurize all of the recipes mentioned in the follwing transcript into Recipe: Ingredients: and Instructions: . For the Ingredients section and be as detailed as possible about the measurements. For the Instructions section be as detailed as possible including what is optional. If this is not a video transcript of how to cooksomething return a -1."
+    query = "Summurize all of the recipes mentioned in the follwing transcript into Recipe: Ingredients: and Instructions: . For the Ingredients and Instructions, Be as detailed about measurements as possible"
     context = "Transcript: \n" + caption
-    prompt = query + "\n" + context 
-    encoding = tiktoken.get_encoding("cl100k_base")
-    tokens = encoding.encode(caption + prompt)
-    token_count = len(tokens)
-
-    if token_count < 3000:
-        return getRecipeOpenAI(prompt, "gpt-3.5-turbo", token_count)
-    elif token_count >= 3000 and token_count < 15000:
-        return getRecipeOpenAI(prompt, "gpt-3.5-turbo-16k", token_count)
-    else:
-        print("The transcript is too long to be processed by Yummarize. Please try a shorter video.")
-        sys.exit(1)
+    prompt = query + "\n" + context
+    completion = openai.ChatCompletion.create(model=f"gpt-3.5-turbo-1106",
+    response_format={"type": "json_object"},
+    messages=[
+    {"role": "system", "content": "You are a web server designed to output JSON objects with the following format for every recipe found: {Recipe: {Ingredients: , Instructions:}} . If the transcript doesn't contain a recipe, your return value should be -1.  For the Instructions, each step should be its own value in a list. For the Ingredients each ingredient should be its own value in a list. Measurements for the Ingredients should be as detailed as possible."},
+    {"role": "system", "content": "If you are having trouble, try to break down the problem into smaller parts. For example, first try to find the recipe, then try to find the ingredients, then try to find the instructions."},
+    {"role": "system", "content": "The Ingredients and Instructions should be as detailed as possible. For example, if the recipe calls for 1 cup of flour, you should return 1 cup of flour, not just flour."},
+    {"role": "user", "content": f"{prompt}"}])
+    return completion["choices"][0].message.content
 
 def getVideoMetaData(video_id):
     params = {
@@ -95,17 +87,9 @@ def getVideoMetaData(video_id):
         data = json.loads(response_text.decode())
         
     return data["title"], data["author_name"]
-        
-    # yummarize url path/to/file, or yummarize url gdrive path/to/file
-def parseArgs():
-    parser = argparse.ArgumentParser(description="Yummarize is a script that summarizes youtube videos into recipe pdfs")
-    parser.add_argument("url", help="The url of the youtube video you want to summarize")
-    parser.add_argument("path", help="The path to the directory you want to save the recipe to. This is optional and will defualt to your home directory", default="~/", nargs='?')
-    args = parser.parse_args()
-    return args
 
 def yummarize():
-    user_input = request.args.get('url')
+    user_input = flrequest.args.get('url')
     caption = getCaptions(user_input)
     recipe = getRecipe(caption)
     videoTitle, channel = (getVideoMetaData(get_video_id(user_input)))
