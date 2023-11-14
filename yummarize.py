@@ -10,9 +10,6 @@ import urllib.parse as p
 import urllib.request as r
 import tiktoken
 import argparse
-from saveRecipe import save
-
-
 
 # Constructs the request that graps the captions object from the video and returns it as a json object
 def getCaptions(user_input):
@@ -65,39 +62,8 @@ def get_video_id(url):
 def getRecipeOpenAI(prompt, model, token_count):
     dotenv.load_dotenv()
     openai.api_key = os.getenv("API_KEY")
-    totalCostRange = estimateCost(token_count, model) 
-    requestUserAuth(totalCostRange[0], totalCostRange[1])
     completion = openai.ChatCompletion.create(model=f"{model}", messages=[{"role": "user", "content": f"{prompt}"}]) 
     return completion.choices[0].message.content
-
-# Asks the user if they want to continue with the recipe generation given the cost
-def requestUserAuth(minCost, maxCost):
-    while True:
-        print("The cost of this recipe is between " + str(minCost) + " and " + str(maxCost) + " cents. Do you want to continue? (y/n)")
-        user_input = input()
-        if user_input == "y":
-            break
-        elif user_input == "n":
-            print("Exiting...")
-            sys.exit(1)
-        else:
-            print("Invalid input! Please enter y or n")
-
-def estimateCost(token_count, model):
-    if model == "gpt-3.5-turbo":
-        inputModelCoef = 0.0000015
-        outputModelCoef = 0.000002
-        maxTokens = 4000
-
-    else:
-        inputModelCoef = 0.000003
-        outputModelCoef = 0.000004
-        maxTokens = 16000
-
-    minCost = (token_count * inputModelCoef)
-    maxCost = ( (maxTokens - token_count)* outputModelCoef)
-    
-    return minCost, maxCost
 
 def getRecipe(caption):
     query = "Summurize all of the recipes mentioned in the follwing transcript into Recipe: Ingredients: and Instructions: . For the Ingredients section and be as detailed as possible about the measurements. For the Instructions section be as detailed as possible including what is optional. If this is not a video transcript of how to cooksomething return a -1."
@@ -138,13 +104,14 @@ def parseArgs():
     args = parser.parse_args()
     return args
 
-def main():
-    settings = parseArgs()
-    user_input = settings.url
+def yummarize():
+    user_input = request.args.get('url')
     caption = getCaptions(user_input)
     recipe = getRecipe(caption)
     videoTitle, channel = (getVideoMetaData(get_video_id(user_input)))
-    save(recipe, videoTitle, channel, user_input, settings.path)
+
+def main():
+    
 
 
 if __name__ == "__main__":
