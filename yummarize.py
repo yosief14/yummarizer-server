@@ -9,7 +9,7 @@ import sys
 import urllib.parse as p
 import urllib.request as r
 import tiktoken
-from flask import Flask, request as flrequest, jsonify
+from flask import Flask, request as flrequest, jsonify, abort
 
 app = Flask(__name__)
 # Constructs the request that graps the captions object from the video and returns it as a json object
@@ -39,8 +39,7 @@ def getCaptions(user_input):
     # Parses the json object and constructs the captions input to be passed to openAI
     caption = ""
     if "actions" not in response:
-        print("No captions found for this video or the video does not exist!")
-        sys.exit(1)
+        abort(400, description=f"Cannot locate captions for video with url \"{user_input}\"")
     for cueGroup in response["actions"][0]["updateEngagementPanelAction"]["content"]["transcriptRenderer"]["body"]["transcriptBodyRenderer"]["cueGroups"]:
         
         for cue in cueGroup["transcriptCueGroupRenderer"]["cues"]:
@@ -56,17 +55,16 @@ def get_video_id(url):
         params = p.parse_qs(query)
         return params["v"][0]
     else:
-        print("Invalid youtube url")
-        sys.exit(1)
+        abort(400, description=f"\"{url}\" is not a valid youtube url")
 
 def check_context_length(context):
     context_string = ""
     for message in context:
         context_string += message["content"] + "\n"
     encoding = tiktoken.get_encoding("cl100k_base")
-    tokens = encoding.encode(context_string)
-    if(len(tokens) > 12000):
-        return False
+    token_len = len(encoding.encode(context_string))
+    if(token_len > 12000):
+        abort(400, description=f"The transcript has a token length of {token_len} which is too long to process. Please try again with a shorter video. The maximum token length is 12,000.")
     else:
         return True
 
@@ -110,10 +108,13 @@ def getVideoMetaData(video_id):
 
 @app.route('/yummarize', methods=['GET'])
 def yummarize():
-    user_input = flrequest.args.get('url')
-    caption = getCaptions(user_input)
-    recipe = getRecipe(caption)
-    videoTitle, channel = (getVideoMetaData(get_video_id(user_input)))
-    return jsonify({"title": videoTitle, "channel": channel, "recipe": recipe})
+        user_input = flrequest.args.get('url')
+        caption = getCaptions(user_input)
+        recipe = getRecipe(caption)
+        videoTitle, channel = (getVideoMetaData(get_video_id(user_input)))
+        metaJson = {"title": videoTitle, "channel": channel}
+        recipeJson = json.loads(recipe)
+        metaJson.update(recipeJson)
+        return metaJson
 
 
