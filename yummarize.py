@@ -9,7 +9,9 @@ import sys
 import urllib.parse as p
 import urllib.request as r
 import tiktoken
-from flask import Flask, request as flrequest, jsonify, abort
+from flask import Flask, request as flrequest, jsonify, abort, g
+import uuid
+import time
 
 app = Flask(__name__)
 # Constructs the request that graps the captions object from the video and returns it as a json object
@@ -68,7 +70,6 @@ def check_context_length(context):
     else:
         return True
 
-
 # Returns the recipe from the openAI model
 def getRecipe(caption):
     dotenv.load_dotenv()
@@ -106,6 +107,13 @@ def getVideoMetaData(video_id):
         
     return data["title"], data["author_name"]
 
+@app.before_request
+def before_request():
+    exceution_id = uuid.uuid4()
+    g.start_time = time.time()
+    g.execution_id = exceution_id
+    print(g.ececution_id, "Route Called", flrequest.url)
+
 @app.route('/yummarize', methods=['GET'])
 def yummarize():
         user_input = flrequest.args.get('url')
@@ -116,5 +124,3 @@ def yummarize():
         recipeJson = json.loads(recipe)
         metaJson.update(recipeJson)
         return metaJson
-
-
