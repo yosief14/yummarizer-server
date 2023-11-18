@@ -13,7 +13,7 @@ from flask import Flask, request as flrequest, jsonify, abort, g
 import uuid
 import time
 
-app = Flask(__name__)
+
 # Constructs the request that graps the captions object from the video and returns it as a json object
 def getCaptions(user_input):
 
@@ -106,21 +106,30 @@ def getVideoMetaData(video_id):
         data = json.loads(response_text.decode())
         
     return data["title"], data["author_name"]
+def create_app():
+    app = Flask(__name__)
 
-@app.before_request
-def before_request():
-    exceution_id = uuid.uuid4()
-    g.start_time = time.time()
-    g.execution_id = exceution_id
-    print(g.ececution_id, "Route Called", flrequest.url)
+    @app.route('/')
+    def index():
+        return 'Hello World'
+    @app.before_request
+    def before_request():
+        execution_id = uuid.uuid4()
+        g.start_time = time.time()
+        g.execution_id = execution_id
+        print(g.execution_id, "Route Called", flrequest.url)
 
-@app.route('/yummarize', methods=['GET'])
-def yummarize():
-        user_input = flrequest.args.get('url')
-        caption = getCaptions(user_input)
-        recipe = getRecipe(caption)
-        videoTitle, channel = (getVideoMetaData(get_video_id(user_input)))
-        metaJson = {"title": videoTitle, "channel": channel}
-        recipeJson = json.loads(recipe)
-        metaJson.update(recipeJson)
-        return metaJson
+    @app.route('/yummarize', methods=['GET'])
+    def yummarize():
+            user_input = flrequest.args.get('url')
+            caption = getCaptions(user_input)
+            recipe = getRecipe(caption)
+            videoTitle, channel = (getVideoMetaData(get_video_id(user_input)))
+            metaJson = {"title": videoTitle, "channel": channel}
+            recipeJson = json.loads(recipe)
+            metaJson.update(recipeJson)
+            return metaJson
+    return app 
+app = create_app()
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
