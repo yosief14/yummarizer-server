@@ -106,6 +106,7 @@ def getVideoMetaData(video_id):
         data = json.loads(response_text.decode())
         
     return data["title"], data["author_name"]
+#Mooved the app creation to a function so that it can be used in the test file
 def create_app():
     app = Flask(__name__)
 
