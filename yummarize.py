@@ -9,9 +9,9 @@ import sys
 import urllib.parse as p
 import urllib.request as r
 import tiktoken
-import argparse
-from saveRecipe import save
-
+from flask import Flask, request as flrequest, jsonify, abort, g
+import uuid
+import time
 
 
 # Constructs the request that graps the captions object from the video and returns it as a json object
@@ -41,8 +41,7 @@ def getCaptions(user_input):
     # Parses the json object and constructs the captions input to be passed to openAI
     caption = ""
     if "actions" not in response:
-        print("No captions found for this video or the video does not exist!")
-        sys.exit(1)
+        abort(400, description=f"Cannot locate captions for video with url \"{user_input}\"")
     for cueGroup in response["actions"][0]["updateEngagementPanelAction"]["content"]["transcriptRenderer"]["body"]["transcriptBodyRenderer"]["cueGroups"]:
         
         for cue in cueGroup["transcriptCueGroupRenderer"]["cues"]:
@@ -58,62 +57,40 @@ def get_video_id(url):
         params = p.parse_qs(query)
         return params["v"][0]
     else:
-        print("Invalid youtube url")
-        sys.exit(1)
+        abort(400, description=f"\"{url}\" is not a valid youtube url")
+
+def check_context_length(context):
+    context_string = ""
+    for message in context:
+        context_string += message["content"] + "\n"
+    encoding = tiktoken.get_encoding("cl100k_base")
+    token_len = len(encoding.encode(context_string))
+    if(token_len > 12000):
+        abort(400, description=f"The transcript has a token length of {token_len} which is too long to process. Please try again with a shorter video. The maximum token length is 12,000.")
+    else:
+        return True
 
 # Returns the recipe from the openAI model
-def getRecipeOpenAI(prompt, model, token_count):
+def getRecipe(caption):
     dotenv.load_dotenv()
     openai.api_key = os.getenv("API_KEY")
-    totalCostRange = estimateCost(token_count, model) 
-    requestUserAuth(totalCostRange[0], totalCostRange[1])
-    completion = openai.ChatCompletion.create(model=f"{model}", messages=[{"role": "user", "content": f"{prompt}"}]) 
-    return completion.choices[0].message.content
 
-# Asks the user if they want to continue with the recipe generation given the cost
-def requestUserAuth(minCost, maxCost):
-    while True:
-        print("The cost of this recipe is between " + str(minCost) + " and " + str(maxCost) + " cents. Do you want to continue? (y/n)")
-        user_input = input()
-        if user_input == "y":
-            break
-        elif user_input == "n":
-            print("Exiting...")
-            sys.exit(1)
-        else:
-            print("Invalid input! Please enter y or n")
-
-def estimateCost(token_count, model):
-    if model == "gpt-3.5-turbo":
-        inputModelCoef = 0.0000015
-        outputModelCoef = 0.000002
-        maxTokens = 4000
-
-    else:
-        inputModelCoef = 0.000003
-        outputModelCoef = 0.000004
-        maxTokens = 16000
-
-    minCost = (token_count * inputModelCoef)
-    maxCost = ( (maxTokens - token_count)* outputModelCoef)
-    
-    return minCost, maxCost
-
-def getRecipe(caption):
-    query = "Summurize all of the recipes mentioned in the follwing transcript into Recipe: Ingredients: and Instructions: . For the Ingredients section and be as detailed as possible about the measurements. For the Instructions section be as detailed as possible including what is optional. If this is not a video transcript of how to cooksomething return a -1."
+    query = "Summurize all of the recipes mentioned in the follwing transcript into Recipe: Ingredients: and Instructions: . For the Ingredients and Instructions, Be as detailed about measurements as possible"
     context = "Transcript: \n" + caption
-    prompt = query + "\n" + context 
-    encoding = tiktoken.get_encoding("cl100k_base")
-    tokens = encoding.encode(caption + prompt)
-    token_count = len(tokens)
+    content = query + "\n" + context
+    system_messages=[
+    {"role": "system", "content": "You are a web server designed to output JSON objects with the following format for every recipe found: {Recipe: {Ingredients: , Instructions:}} . If the transcript doesn't contain a recipe, your return value should be -1.  For the Instructions, each step should be its own value in a list. For the Ingredients each ingredient should be its own value in a list. Measurements for the Ingredients should be as detailed as possible."},
+    {"role": "system", "content": "If you are having trouble, try to break down the problem into smaller parts. For example, first try to find the recipe, then try to find the ingredients, then try to find the instructions."},
+    {"role": "system", "content": "The Ingredients and Instructions should be as detailed as possible. For example, if the recipe calls for 1 cup of flour, you should return 1 cup of flour, not just flour."}
+    ]
+    prompt = {"role": "user", "content": f"{content}"}
+    system_messages.append(prompt)
 
-    if token_count < 3000:
-        return getRecipeOpenAI(prompt, "gpt-3.5-turbo", token_count)
-    elif token_count >= 3000 and token_count < 15000:
-        return getRecipeOpenAI(prompt, "gpt-3.5-turbo-16k", token_count)
-    else:
-        print("The transcript is too long to be processed by Yummarize. Please try a shorter video.")
-        sys.exit(1)
+    if(not check_context_length(system_messages)):
+        return "The transcript is too long to process. Please try again with a shorter video."
+    
+    completion = openai.ChatCompletion.create(model=f"gpt-3.5-turbo-1106", response_format={"type": "json_object"}, messages=system_messages)
+    return completion["choices"][0].message.content
 
 def getVideoMetaData(video_id):
     params = {
@@ -129,24 +106,31 @@ def getVideoMetaData(video_id):
         data = json.loads(response_text.decode())
         
     return data["title"], data["author_name"]
-        
-    # yummarize url path/to/file, or yummarize url gdrive path/to/file
-def parseArgs():
-    parser = argparse.ArgumentParser(description="Yummarize is a script that summarizes youtube videos into recipe pdfs")
-    parser.add_argument("url", help="The url of the youtube video you want to summarize")
-    parser.add_argument("path", help="The path to the directory you want to save the recipe to. This is optional and will defualt to your home directory", default="~/", nargs='?')
-    args = parser.parse_args()
-    return args
+#Mooved the app creation to a function so that it can be used in the test file
+def create_app():
+    app = Flask(__name__)
 
-def main():
-    settings = parseArgs()
-    user_input = settings.url
-    caption = getCaptions(user_input)
-    recipe = getRecipe(caption)
-    videoTitle, channel = (getVideoMetaData(get_video_id(user_input)))
-    save(recipe, videoTitle, channel, user_input, settings.path)
+    @app.route('/')
+    def index():
+        return 'Hello World'
+    @app.before_request
+    def before_request():
+        execution_id = uuid.uuid4()
+        g.start_time = time.time()
+        g.execution_id = execution_id
+        print(g.execution_id, "Route Called", flrequest.url)
 
-
-if __name__ == "__main__":
-    main()
-
+    @app.route('/yummarize', methods=['GET'])
+    def yummarize():
+            user_input = flrequest.args.get('url')
+            caption = getCaptions(user_input)
+            recipe = getRecipe(caption)
+            videoTitle, channel = (getVideoMetaData(get_video_id(user_input)))
+            metaJson = {"title": videoTitle, "channel": channel}
+            recipeJson = json.loads(recipe)
+            metaJson.update(recipeJson)
+            return metaJson
+    return app 
+app = create_app()
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
